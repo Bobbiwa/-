@@ -1,0 +1,76 @@
+# 为什么 React Hooks 绝对不能写在 if 语句或者 for 循环里？底层究竟是怎么存储的？
+
+这道题揭开了 React Hooks 魔法背后的真实运作机制。
+
+根本原因在于：**React 底层根本不知道你写的 Hook 叫什么名字，它识别 Hook 身份的唯一凭证就是“执行顺序”。**
+
+很多开发者误以为 React 是通过变量名来记住状态的（比如以为引擎认识 `const [name, setName] = useState()` 里的 `name`），这完全是错觉。在底层，Hooks 的存储结构其实非常原始，甚至有些“笨拙”。
+
+### 底层揭秘：Fiber 节点上的“单向链表”
+
+在 React 的 Fiber 架构中，当你调用一个函数组件时，这个组件对应着一个 Fiber 节点。而你在组件里写的所有 Hooks，在底层会被首尾相连，串成一条**单向链表 (Singly Linked List)**，挂载在这个 Fiber 节点的 `memoizedState` 属性上。
+
+假设你有这样一段代码（完全正确的写法）：
+
+JavaScript
+
+```
+function UserCard() {
+  const [name, setName] = useState('杜斌'); // Hook 1
+  useEffect(() => { ... }, []);            // Hook 2
+  const [age, setAge] = useState(18);       // Hook 3
+}
+```
+
+**第一次渲染（挂载阶段）：**
+
+React 会按照代码执行的顺序，一步步构建出这条链表：
+
+`Fiber.memoizedState` ➡️ `Hook1 (name)` ➡️ `Hook2 (effect)` ➡️ `Hook3 (age)`
+
+**第二次渲染（更新阶段）：**
+
+React 再次执行这个函数组件。当它遇到第一个 `useState` 时，它会去读链表的第 1 个节点；遇到 `useEffect`，去读第 2 个节点……**指针按顺序一个个往下移动，依次取出上次存好的状态交给你**。
+
+### 灾难现场：当 Hook 躲进 if 语句
+
+现在，假设我们打破规则，把第二个 Hook 放进 `if` 语句里：
+
+JavaScript
+
+```
+function UserCard({ showEffect }) {
+  const [name, setName] = useState('杜斌'); // Hook 1
+  
+  if (showEffect) {
+    useEffect(() => { ... }, []);          // Hook 2 (危险！)
+  }
+  
+  const [age, setAge] = useState(18);       // Hook 3
+}
+```
+
+**第一次渲染（`showEffect` 为 true）：**
+
+链表正常生成，指针完美对齐：
+
+`节点1(name)` ➡️ `节点2(effect)` ➡️ `节点3(age)`
+
+**第二次渲染（`showEffect` 变为了 false）：**
+
+致命的错位发生了！
+
+1. 代码执行到第 1 个 `useState`，React 取出链表**节点 1**，把 `'杜斌'` 交给 `name`（正常）。
+2. 因为 `if` 为 `false`，代码**跳过了** `useEffect`，直接执行到了第 3 个 `useState(age)`。
+3. 但底层的 React 引擎是一个只会按顺序移动指针的“无情机器”。它现在要把链表指针移到下一个位置了，也就是**节点 2**。
+4. **状态错乱爆发：** React 把**节点 2（原本存的是 useEffect 的底层数据）** 强行塞给了 `age` 这个状态！数据类型完全不匹配，组件当场崩溃，抛出类似 `Rendered fewer hooks than expected` 的致命红屏错误。
+
+### 满分面试话术
+
+如果面试官问为什么不能在条件语句或循环里写 Hooks，你可以这样直击底层：
+
+“这是由 React Hooks 底层的数据结构决定的。
+
+在 Fiber 架构中，组件内的 Hooks 并不是通过键值对（Hash Map）来存储的，而是以**单向链表**的形式，按代码执行顺序挂载在 Fiber 节点的 `memoizedState` 属性上。每次组件重新渲染时，React 引擎必须完全依赖**严格一致的执行顺序**来依次移动链表指针，从而读取对应的状态。
+
+如果将 Hook 放入 `if`、循环或嵌套函数中，一旦某次渲染条件发生改变导致某个 Hook 被跳过，后续所有的 Hook 指针读取都会发生错位。这会导致状态被张冠李戴，甚至引起程序直接崩溃报错。因此，Hooks 必须始终在组件的顶层作用域被无条件调用。”
