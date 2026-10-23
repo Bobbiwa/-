@@ -86,6 +86,58 @@ function myInstanceof(left, right) {
 }
 ```
 
+## 手写new
+
+```javascript
+/**
+ * 模拟 new 关键字的函数
+ * @param {Function} constructor - 构造函数 (比如 Person)
+ * @param {...any} args - 传给构造函数的参数 (比如 '小杜', 25)
+ */
+function myNew(constructor, ...args) {
+  
+  // 【第 1 步】和【第 2 步】合并：
+  // Object.create(proto) 会创建一个空对象，并且直接把它的原型指向 proto
+  const obj = Object.create(constructor.prototype);
+
+  // 【第 3 步】：调用构造函数，把 this 强行绑定到新对象 obj 上，并把参数传进去
+  // 用 apply 或者 call 都可以
+  const result = constructor.apply(obj, args);
+
+  // 【第 4 步】：检查返回值
+  // 判断 result 是否为对象（且不能是 null，因为 typeof null 也是 'object'）或者函数
+  if (result !== null && (typeof result === 'object' || typeof result === 'function')) {
+    return result; // 如果构造函数执意要返回自己的对象，就顺从它
+  }
+  
+  return obj; // 否则，把咱们刚装修好的 obj 交出去
+}
+```
+
+测试一下我们手写的 `myNew`
+
+```javascript
+function Person(name, age) {
+  this.name = name;
+  this.age = age;
+}
+Person.prototype.sayHi = function() {
+  console.log('Hi, 我是 ' + this.name);
+}
+
+// 原生的 new
+const p1 = new Person('原生小杜', 18);
+p1.sayHi(); // Hi, 我是 原生小杜
+
+// 我们手写的 myNew
+const p2 = myNew(Person, '手写小杜', 20);
+p2.sayHi(); // Hi, 我是 手写小杜
+
+console.log(p2.__proto__ === Person.prototype); // true (认祖归宗成功)
+```
+
+
+
 ## 3. 手写 `Promise.all`
 
 **核心：** 结果按原数组索引赋值，计数器等于长度时放行，任何一个报错则全盘崩溃。
